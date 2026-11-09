@@ -38,6 +38,13 @@
   text-decoration: underline;
 }
 
+.highlight {
+  background: #ffe082;
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
 .filter {
   display: flex;
   align-items: center;

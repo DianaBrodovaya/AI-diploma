@@ -1,11 +1,13 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { products as staticProducts } from "../../data/products.js";
 import { useCart } from "../cart/CartContext.jsx";
 import { useProducts } from "../../hooks/useProducts.js";
 import { calcDiscountPrice } from "../../utils/price.js";
 import { filterProducts } from "../../utils/filters.js";
+import { searchProducts, getHighlightParts, isSearchActive } from "../../utils/search.js";
 import CatalogFilters from "./CatalogFilters.jsx";
+import CatalogSearch from "./CatalogSearch.jsx";
 import CatalogSkeleton from "../../components/CatalogSkeleton.jsx";
 import styles from "./CatalogPage.module.css";
 
@@ -30,27 +32,54 @@ function filtersToParams(filters) {
   return params;
 }
 
+function buildSearchParams(filters, query) {
+  const params = filtersToParams(filters);
+  const trimmed = (query ?? "").trim();
+  if (trimmed) params.q = trimmed;
+  return params;
+}
+
 function CatalogPage() {
   const { addToCart } = useCart();
   const [onlyInStock, setOnlyInStock] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const { products, status, error, retry } = useProducts();
 
-  const filters = parseFiltersFromParams(searchParams);
+  const filters = useMemo(
+    () => parseFiltersFromParams(searchParams),
+    [searchParams],
+  );
+  const searchQuery = searchParams.get("q") ?? "";
 
   const categories = useMemo(
     () => [...new Set(staticProducts.map((p) => p.category))],
     [],
   );
 
-  function handleFiltersChange(next) {
-    setSearchParams(filtersToParams(next));
-  }
+  const handleFiltersChange = useCallback(
+    (next) => {
+      setSearchParams(buildSearchParams(next, searchQuery));
+    },
+    [searchQuery, setSearchParams],
+  );
+
+  const handleSearchChange = useCallback(
+    (nextQuery) => {
+      setSearchParams((prev) => {
+        const nextFilters = parseFiltersFromParams(prev);
+        return buildSearchParams(nextFilters, nextQuery);
+      });
+    },
+    [setSearchParams],
+  );
 
   let visibleProducts = filterProducts(products, filters);
   if (onlyInStock) {
     visibleProducts = visibleProducts.filter((p) => p.inStock);
   }
+  visibleProducts = searchProducts(visibleProducts, searchQuery);
+
+  const highlightActive = isSearchActive(searchQuery);
 
   return (
     <section>
@@ -84,6 +113,7 @@ function CatalogPage() {
 
       {(status === "success" || status === "fallback") && (
         <>
+          <CatalogSearch value={searchQuery} onChange={handleSearchChange} />
           <CatalogFilters
             filters={filters}
             categories={categories}
@@ -123,7 +153,20 @@ function CatalogPage() {
                   <article key={product.id} className={styles.card}>
                     <div className={styles.imagePlaceholder} />
                     <h2 className={styles.name}>
-                      <Link to={`/product/${product.id}`}>{product.name}</Link>
+                      <Link to={`/product/${product.id}`}>
+                        {highlightActive
+                          ? getHighlightParts(product.name, searchQuery).map(
+                              (part) =>
+                                part.match ? (
+                                  <mark key={part.start} className={styles.highlight}>
+                                    {part.text}
+                                  </mark>
+                                ) : (
+                                  <span key={part.start}>{part.text}</span>
+                                ),
+                            )
+                          : product.name}
+                      </Link>
                     </h2>
                     {discountedPrice !== null ? (
                       <div className={styles.priceRow}>
