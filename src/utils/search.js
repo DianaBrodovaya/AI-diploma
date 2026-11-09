@@ -1,7 +1,8 @@
 export const MIN_SEARCH_LENGTH = 2;
+export const MAX_SEARCH_LENGTH = 100;
 
 export function normalizeSearchQuery(query) {
-  return (query ?? "").trim();
+  return (query ?? "").trim().slice(0, MAX_SEARCH_LENGTH);
 }
 
 export function isSearchActive(query) {
@@ -19,7 +20,9 @@ export function searchProducts(products, query) {
 
   const needle = normalizeSearchQuery(query).toLowerCase();
   return products.filter((product) =>
-    product.name.toLowerCase().includes(needle),
+    String(product?.name ?? "")
+      .toLowerCase()
+      .includes(needle),
   );
 }
 

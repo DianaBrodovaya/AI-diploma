@@ -1,6 +1,10 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue.js";
-import { isSearchActive } from "../../utils/search.js";
+import {
+  isSearchActive,
+  MAX_SEARCH_LENGTH,
+  normalizeSearchQuery,
+} from "../../utils/search.js";
 import {
   addSearchHistory,
   readSearchHistory,
@@ -10,15 +14,22 @@ import styles from "./CatalogSearch.module.css";
 
 export const SEARCH_DEBOUNCE_MS = 500;
 
+function toUrlQuery(query) {
+  return isSearchActive(query) ? normalizeSearchQuery(query) : "";
+}
+
 function CatalogSearch({ value, onChange }) {
   const listboxId = useId();
+  const inputId = useId();
   const [inputValue, setInputValue] = useState(value);
   const [prevValue, setPrevValue] = useState(value);
   const [history, setHistory] = useState(() => readSearchHistory());
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const debouncedValue = useDebouncedValue(inputValue, SEARCH_DEBOUNCE_MS);
   const onChangeRef = useRef(onChange);
   const valueRef = useRef(value);
+  const lastEmittedRef = useRef(value);
   const blurTimerRef = useRef(null);
 
   onChangeRef.current = onChange;
@@ -26,7 +37,11 @@ function CatalogSearch({ value, onChange }) {
 
   if (value !== prevValue) {
     setPrevValue(value);
-    setInputValue(value);
+    if (value !== lastEmittedRef.current) {
+      setInputValue(value);
+      lastEmittedRef.current = value;
+      setActiveIndex(-1);
+    }
   }
 
   useEffect(() => {
@@ -37,6 +52,14 @@ function CatalogSearch({ value, onChange }) {
     };
   }, []);
 
+  function emitQuery(query) {
+    const next = toUrlQuery(query);
+    lastEmittedRef.current = next;
+    if (next !== valueRef.current) {
+      onChangeRef.current(next);
+    }
+  }
+
   function rememberQuery(query) {
     if (!isSearchActive(query)) {
       return;
@@ -45,42 +68,60 @@ function CatalogSearch({ value, onChange }) {
   }
 
   useEffect(() => {
-    if (debouncedValue === valueRef.current) {
+    const next = toUrlQuery(debouncedValue);
+    if (next === valueRef.current) {
       return;
     }
-    onChangeRef.current(debouncedValue);
-    rememberQuery(debouncedValue);
+    lastEmittedRef.current = next;
+    onChangeRef.current(next);
   }, [debouncedValue]);
 
-  function submitSearch() {
-    if (inputValue !== value) {
-      onChange(inputValue);
-    }
-    rememberQuery(inputValue);
+  function closeHistory() {
     setIsHistoryOpen(false);
+    setActiveIndex(-1);
+  }
+
+  function openHistory() {
+    if (history.length === 0) {
+      return;
+    }
+    setIsHistoryOpen(true);
+  }
+
+  function submitSearch() {
+    emitQuery(inputValue);
+    rememberQuery(inputValue);
+    closeHistory();
   }
 
   function handleSubmit(e) {
     e.preventDefault();
+    if (isHistoryOpen && activeIndex >= 0 && history[activeIndex]) {
+      handleSelectHistory(history[activeIndex]);
+      return;
+    }
     submitSearch();
   }
 
   function handleClear() {
     setInputValue("");
+    lastEmittedRef.current = "";
     onChange("");
-    setIsHistoryOpen(false);
+    closeHistory();
   }
 
   function handleSelectHistory(query) {
     setInputValue(query);
-    onChange(query);
+    lastEmittedRef.current = toUrlQuery(query);
+    onChange(toUrlQuery(query));
     rememberQuery(query);
-    setIsHistoryOpen(false);
+    closeHistory();
   }
 
   function handleRemoveHistory(query) {
     const next = removeSearchHistory(query);
     setHistory(next);
+    setActiveIndex(-1);
     setIsHistoryOpen(next.length > 0);
   }
 
@@ -89,45 +130,99 @@ function CatalogSearch({ value, onChange }) {
       clearTimeout(blurTimerRef.current);
       blurTimerRef.current = null;
     }
-    setIsHistoryOpen(history.length > 0);
+    openHistory();
   }
 
   function handleBlur() {
     blurTimerRef.current = setTimeout(() => {
-      setIsHistoryOpen(false);
+      closeHistory();
       blurTimerRef.current = null;
     }, 120);
   }
 
+  function handleKeyDown(e) {
+    if (e.key === "Escape") {
+      if (isHistoryOpen) {
+        e.preventDefault();
+        closeHistory();
+      }
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      if (history.length === 0) {
+        return;
+      }
+      e.preventDefault();
+      setIsHistoryOpen(true);
+      setActiveIndex((index) =>
+        index < history.length - 1 ? index + 1 : 0,
+      );
+      return;
+    }
+
+    if (e.key === "ArrowUp") {
+      if (history.length === 0) {
+        return;
+      }
+      e.preventDefault();
+      setIsHistoryOpen(true);
+      setActiveIndex((index) =>
+        index <= 0 ? history.length - 1 : index - 1,
+      );
+      return;
+    }
+
+    if (e.key === "Home" && isHistoryOpen && history.length > 0) {
+      e.preventDefault();
+      setActiveIndex(0);
+      return;
+    }
+
+    if (e.key === "End" && isHistoryOpen && history.length > 0) {
+      e.preventDefault();
+      setActiveIndex(history.length - 1);
+    }
+  }
+
   const showHistory = isHistoryOpen && history.length > 0;
+  const activeOptionId =
+    showHistory && activeIndex >= 0
+      ? `${listboxId}-option-${activeIndex}`
+      : undefined;
 
   return (
     <form className={styles.search} onSubmit={handleSubmit} role="search">
-      <label className={styles.label} htmlFor="catalog-search">
+      <label className={styles.label} htmlFor={inputId}>
         Поиск
       </label>
       <div className={styles.row}>
         <div className={styles.fieldWrap}>
           <div className={styles.field}>
             <input
-              id="catalog-search"
+              id={inputId}
               className={styles.input}
               type="search"
               placeholder="Поиск по названию"
               value={inputValue}
+              maxLength={MAX_SEARCH_LENGTH}
               onChange={(e) => {
-                setInputValue(e.target.value);
+                setInputValue(e.target.value.slice(0, MAX_SEARCH_LENGTH));
+                setActiveIndex(-1);
                 if (history.length > 0) {
                   setIsHistoryOpen(true);
                 }
               }}
               onFocus={handleFocus}
               onBlur={handleBlur}
+              onKeyDown={handleKeyDown}
               autoComplete="off"
               role="combobox"
               aria-expanded={showHistory}
               aria-controls={listboxId}
               aria-autocomplete="list"
+              aria-activedescendant={activeOptionId}
+              aria-haspopup="listbox"
             />
             <button
               type="submit"
@@ -167,27 +262,40 @@ function CatalogSearch({ value, onChange }) {
               role="listbox"
               aria-label="История поиска"
             >
-              {history.map((item) => (
-                <li key={item.toLowerCase()} className={styles.historyRow} role="option">
-                  <button
-                    type="button"
-                    className={styles.historyItem}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => handleSelectHistory(item)}
+              {history.map((item, index) => {
+                const optionId = `${listboxId}-option-${index}`;
+                const isActive = index === activeIndex;
+
+                return (
+                  <li
+                    key={item.toLowerCase()}
+                    id={optionId}
+                    className={`${styles.historyRow}${isActive ? ` ${styles.historyRowActive}` : ""}`}
+                    role="option"
+                    aria-selected={isActive}
                   >
-                    {item}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.historyRemove}
-                    aria-label={`Удалить запрос «${item}» из истории`}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => handleRemoveHistory(item)}
-                  >
-                    <span aria-hidden="true">×</span>
-                  </button>
-                </li>
-              ))}
+                    <button
+                      type="button"
+                      className={styles.historyItem}
+                      tabIndex={-1}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleSelectHistory(item)}
+                      onMouseEnter={() => setActiveIndex(index)}
+                    >
+                      {item}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.historyRemove}
+                      aria-label={`Удалить запрос «${item}» из истории`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleRemoveHistory(item)}
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

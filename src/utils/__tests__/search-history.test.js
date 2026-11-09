@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { MAX_SEARCH_LENGTH } from "../search.js";
 import {
   SEARCH_HISTORY_KEY,
   SEARCH_HISTORY_LIMIT,
@@ -91,6 +92,18 @@ describe("search history", () => {
     expect(localStorage.setItem).toHaveBeenCalledWith(
       SEARCH_HISTORY_KEY,
       JSON.stringify(["Кроссовки"]),
+    );
+  });
+
+  it("truncates oversized queries before persisting", () => {
+    const longQuery = `к${"о".repeat(MAX_SEARCH_LENGTH + 40)}`;
+    const next = addSearchHistory(longQuery, []);
+
+    expect(next).toHaveLength(1);
+    expect(next[0]).toHaveLength(MAX_SEARCH_LENGTH);
+    expect(localStorage.setItem).toHaveBeenCalledWith(
+      SEARCH_HISTORY_KEY,
+      JSON.stringify([longQuery.trim().slice(0, MAX_SEARCH_LENGTH)]),
     );
   });
 });

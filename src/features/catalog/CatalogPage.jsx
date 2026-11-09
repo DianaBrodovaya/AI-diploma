@@ -5,7 +5,12 @@ import { useCart } from "../cart/CartContext.jsx";
 import { useProducts } from "../../hooks/useProducts.js";
 import { calcDiscountPrice } from "../../utils/price.js";
 import { filterProducts } from "../../utils/filters.js";
-import { searchProducts, getHighlightParts, isSearchActive } from "../../utils/search.js";
+import {
+  searchProducts,
+  getHighlightParts,
+  isSearchActive,
+  normalizeSearchQuery,
+} from "../../utils/search.js";
 import CatalogFilters from "./CatalogFilters.jsx";
 import CatalogSearch from "./CatalogSearch.jsx";
 import CatalogSkeleton from "../../components/CatalogSkeleton.jsx";
@@ -34,8 +39,9 @@ function filtersToParams(filters) {
 
 function buildSearchParams(filters, query) {
   const params = filtersToParams(filters);
-  const trimmed = (query ?? "").trim();
-  if (trimmed) params.q = trimmed;
+  if (isSearchActive(query)) {
+    params.q = normalizeSearchQuery(query);
+  }
   return params;
 }
 

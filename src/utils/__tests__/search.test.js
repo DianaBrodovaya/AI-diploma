@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   MIN_SEARCH_LENGTH,
+  MAX_SEARCH_LENGTH,
   normalizeSearchQuery,
   isSearchActive,
   escapeRegExp,
@@ -23,6 +24,12 @@ describe("normalizeSearchQuery", () => {
   it("treats nullish as empty string", () => {
     expect(normalizeSearchQuery(undefined)).toBe("");
     expect(normalizeSearchQuery(null)).toBe("");
+  });
+
+  it("truncates to MAX_SEARCH_LENGTH", () => {
+    const longQuery = "а".repeat(MAX_SEARCH_LENGTH + 25);
+    expect(normalizeSearchQuery(longQuery)).toHaveLength(MAX_SEARCH_LENGTH);
+    expect(MAX_SEARCH_LENGTH).toBe(100);
   });
 });
 
@@ -84,6 +91,16 @@ describe("searchProducts", () => {
 
   it("handles empty products array", () => {
     expect(searchProducts([], "Футболка")).toHaveLength(0);
+  });
+
+  it("skips products without a usable name instead of throwing", () => {
+    const broken = [
+      { id: 1, name: "Футболка" },
+      { id: 2 },
+      { id: 3, name: null },
+    ];
+    expect(() => searchProducts(broken, "Фут")).not.toThrow();
+    expect(searchProducts(broken, "Фут")).toEqual([{ id: 1, name: "Футболка" }]);
   });
 });
 

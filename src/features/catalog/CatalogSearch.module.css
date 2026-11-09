@@ -116,7 +116,8 @@
 }
 
 .historyRow:hover,
-.historyRow:focus-within {
+.historyRow:focus-within,
+.historyRowActive {
   background: #f5f5f5;
 }
 
